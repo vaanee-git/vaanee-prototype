@@ -1,9 +1,9 @@
 from flask import Flask, jsonify, request
 from flask import send_file
 from pymongo import MongoClient
-from io import BytesIO
-from scipy.io.wavfile import read, write
 import azure.cognitiveservices.speech as speechsdk
+import requests
+import time
 
 app = Flask(__name__)
 
@@ -50,7 +50,7 @@ def save_to_db(turn, response):
 
 def recognize_from_wav(file_path):
     speech_config = speechsdk.SpeechConfig(subscription='159f7108b2a74f279eecb004944afd95', region='centralindia')
-    speech_config.speech_recognition_language="en-IN"
+    speech_config.speech_recognition_language = "en-IN"
     audio_config = speechsdk.audio.AudioConfig(filename=file_path)
     speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
     speech_recognition_result = speech_recognizer.recognize_once_async().get()
@@ -68,20 +68,27 @@ def recognize_from_wav(file_path):
     return None
 
 
+def recognize_from_api(data):
+    res = requests.post(
+        url='https://centralindia.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US&format=detailed',
+        data=data,
+        headers={'Content-Type': 'audio/wav', 'Ocp-Apim-Subscription-Key': '159f7108b2a74f279eecb004944afd95',
+                 'Accept': 'application/json'})
+    return res.json()["DisplayText"]
+
+
 @app.route('/user_response', methods=['POST'])
 def save_user_response():
     if request.method == 'POST':
-        args = request.args
-        turn = args.get("turn")
-        if int(turn) > 0:
-            save_path = "./user/response_" + turn + ".wav"
-        # Save to Local
-        request.files['music_file'].save(save_path)
-        stt = recognize_from_wav(save_path)
-
+        turn = request.args.get("turn")
+        audio = request.files['music_file']
+        text = recognize_from_api(audio)
 
         # Save to DB
-        save_to_db(turn=turn, response =stt)
-        return {"turn": args.get("turn"),
-                "response_sent": "true"}
-        # continue processing...
+        start = time.time()
+        save_to_db(turn=turn, response=text)
+        end = time.time()
+        print(end-start)
+        return {"turn": turn,
+                "response": text,
+                }
