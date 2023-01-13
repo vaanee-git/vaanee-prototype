@@ -1,0 +1,4 @@
+Flask==2.2.2
+pymongo==4.3.3
+scipy==1.10.0
+azure-cognitiveservices-speech==1.24.2
