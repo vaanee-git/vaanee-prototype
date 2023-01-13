@@ -86,7 +86,7 @@ def save_user_response():
 
         # Save to DB
         start = time.time()
-        save_to_db(turn=turn, response=text)
+        # save_to_db(turn=turn, response=text)
         end = time.time()
         print(end-start)
         return {"turn": turn,
