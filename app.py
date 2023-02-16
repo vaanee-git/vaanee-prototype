@@ -63,6 +63,7 @@ def register_call_initiation():
             else:
                 active_phone_numbers[caller_number] = {"call_start_time": get_current_date_time()}
                 active_phone_numbers[caller_number]["user_responses"] = {}
+                active_phone_numbers[caller_number]["current_turn"] = 0
             return {"number_saved": True}
         else:
             return {"number_saved": False,
@@ -82,15 +83,17 @@ def get_bot_response():
     caller_number = args.get("caller_number")
     if caller_number in active_phone_numbers.keys():
         turn = args.get("turn")
-        if int(turn) > 0:
+        if int(turn) > 0 and turn == str(active_phone_numbers[caller_number]["current_turn"] + 1):
             if turn in turn_audio.keys():
                 path_to_file = turn_audio[turn]
+                active_phone_numbers[caller_number]["current_turn"] = \
+                    active_phone_numbers[caller_number]["current_turn"] + 1
                 return send_file(
                     path_to_file,
                     mimetype="audio/wav",
                     as_attachment=True)
             else:
-                return {"Audio": "NOT FOUND"}
+                return {"audio": "NOT_FOUND"}
         else:
             return {"invalid_turn_number": True}
     else:
@@ -103,19 +106,26 @@ def capture_user_response():
         args = request.args
         turn = args.get("turn")
         caller_number = str(args.get("caller_number"))
+        if caller_number in active_phone_numbers.keys():
+            if int(turn) > 0 and turn == str(active_phone_numbers[caller_number]["current_turn"]):
+                # get audio and its transcription
+                audio = request.files['user-audio']
+                try:
+                    transcription = recognize_from_api(audio)
+                except:
+                    return {"user_response": "NOT_SAVED",
+                            "transcription": "COULD_NOT_GENERATE",
+                        }
 
-        # get audio and its transcription
-        audio = request.files['user-audio']
-        transcription = recognize_from_api(audio)
-
-        # Save to Memory
-        if caller_number:
-            if caller_number in active_phone_numbers.keys():
+                # Save to Memory
                 active_phone_numbers[caller_number]["user_responses"][turn] = transcription
-
-        return {"turn": turn,
-                "response": transcription,
-                }
+                return {"user_response": "SAVED",
+                        "transcription": transcription,
+                        }
+            else:
+                return {"invalid_turn_number": True}
+        else:
+            return {"caller_number": "INACTIVE"}
 
 
 @app.route('/get_user_responses', methods=['GET'])
@@ -128,18 +138,29 @@ def get_user_responses():
 
 @app.route('/register_call_ended', methods=['POST'])
 def register_call_ended():
-        audio = request.files['call-recording']
+        if "call-recording" in request.files:
+            audio = request.files['call-recording']
+            audio_avl = True
+        else:
+            audio_avl = False
         args = request.args
         caller_number = str(args.get("caller_number"))
+        reason = str(args.get("reason"))
+        valid_reasons = ["USER_ENDED", "UNABLE_TO_SAVE_CALLER_NUMBER", "AUDIO_NOT_FOUND",
+                         "UNABLE_TO_FETCH_BOT_RESPONSE", "USER_RESPONSE_NOT_SAVED", "COULDNT_SEND_USER_RESPONSE"]
+        if reason not in valid_reasons:
+            return {"reason": "INVALID"}
         if caller_number and caller_number in active_phone_numbers.keys():
             call_details = active_phone_numbers[caller_number]
             call_dict = {"caller_number": caller_number,
                          "call_start_time": call_details["call_start_time"],
                          "call_end_time": get_current_date_time(),
-                         "user_responses": call_details["user_responses"]
+                         "user_responses": call_details["user_responses"],
+                         "reason": reason
                          }
             save_to_db(call_dict)
             del active_phone_numbers[caller_number]
-            return {"call_details_saved": True}
+            return {"call_details_saved": True,
+                    "audio_saved": audio_avl}
         else:
-            return {"call_not_registered": True}
+            return {"caller_number": "INACTIVE"}
